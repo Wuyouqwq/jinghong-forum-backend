@@ -1,0 +1,5 @@
+.git
+.env
+logs
+forum-server
+forum-server.exe

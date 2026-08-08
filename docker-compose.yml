@@ -1,0 +1,51 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      GIN_MODE: release
+      MYSQL_DSN: forum:forum@tcp(mysql:3306)/forum?charset=utf8mb4&parseTime=True&loc=Local
+      JWT_SECRET: ${JWT_SECRET:-development-secret-change-before-production}
+      JWT_EXPIRES: 2h
+      REDIS_ADDR: redis:6379
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: forum
+      MYSQL_USER: forum
+      MYSQL_PASSWORD: forum
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql_data:
