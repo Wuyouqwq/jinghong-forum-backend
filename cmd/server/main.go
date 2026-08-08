@@ -2,11 +2,10 @@ package main
 
 import (
 	"context"
-	"io"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -14,20 +13,27 @@ import (
 )
 
 func main() {
-	_ = os.MkdirAll("logs", 0o755)
-	logFile, err := os.OpenFile(filepath.Join("logs", "app.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		panic(err)
+	os.Exit(run())
+}
+
+func run() int {
+	cfg := app.LoadConfig()
+	if err := cfg.Validate(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "invalid configuration: %v\n", err)
+		return 1
 	}
-	defer logFile.Close()
-	logger := slog.New(slog.NewJSONHandler(io.MultiWriter(os.Stdout, logFile), nil))
+	logger, logCloser, err := app.NewLogger(cfg)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "initialize logger: %v\n", err)
+		return 1
+	}
+	defer func() { _ = logCloser.Close() }()
 	slog.SetDefault(logger)
 
-	cfg := app.LoadConfig()
 	server, err := app.NewServer(context.Background(), cfg)
 	if err != nil {
 		logger.Error("initialize server", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	errCh := make(chan error, 1)
@@ -36,10 +42,18 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case err := <-errCh:
-		logger.Error("server stopped", "error", err)
+		if err != nil {
+			logger.Error("server stopped", "error", err)
+			_ = server.Shutdown(context.Background())
+			return 1
+		}
 	case <-stop:
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()
-		_ = server.Shutdown(ctx)
+		if err := server.Shutdown(ctx); err != nil {
+			logger.Error("server shutdown failed", "error", err)
+			return 1
+		}
 	}
+	return 0
 }

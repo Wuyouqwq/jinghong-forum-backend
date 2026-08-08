@@ -3,46 +3,77 @@ services:
     build: .
     restart: unless-stopped
     environment:
-      PORT: "8080"
+      APP_ENV: ${APP_ENV:-development}
+      PORT: ${PORT:-8080}
       GIN_MODE: release
-      MYSQL_DSN: forum:forum@tcp(mysql:3306)/forum?charset=utf8mb4&parseTime=True&loc=Local
+      MYSQL_DSN: ${MYSQL_DSN:-forum:forum@tcp(mysql:3306)/forum?charset=utf8mb4&parseTime=True&loc=Local}
       JWT_SECRET: ${JWT_SECRET:-development-secret-change-before-production}
-      JWT_EXPIRES: 2h
-      REDIS_ADDR: redis:6379
+      JWT_EXPIRES: ${JWT_EXPIRES:-2h}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_TLS: ${REDIS_TLS:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       ADMIN_REGISTRATION_SECRET: ${ADMIN_REGISTRATION_SECRET:-}
+      AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-20}
+      API_RATE_LIMIT: ${API_RATE_LIMIT:-600}
+      WRITE_RATE_LIMIT: ${WRITE_RATE_LIMIT:-120}
+      AGENT_RATE_LIMIT: ${AGENT_RATE_LIMIT:-12}
+      AGENT_HISTORY_MESSAGES: ${AGENT_HISTORY_MESSAGES:-24}
+      AGENT_HISTORY_RUNES: ${AGENT_HISTORY_RUNES:-12000}
+      AGENT_MESSAGE_RETENTION: ${AGENT_MESSAGE_RETENTION:-720h}
+      AGENT_DRAFT_RETENTION: ${AGENT_DRAFT_RETENTION:-168h}
+      HOT_GRAVITY: ${HOT_GRAVITY:-1.2}
+      HOT_BASE_HALF_LIFE: ${HOT_BASE_HALF_LIFE:-72h}
+      HOT_MOMENTUM_HALF_LIFE: ${HOT_MOMENTUM_HALF_LIFE:-24h}
+      HOT_RECENT_WINDOW: ${HOT_RECENT_WINDOW:-168h}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_DIR: /app/logs
+      LOG_MAX_SIZE_MB: ${LOG_MAX_SIZE_MB:-20}
+      LOG_MAX_BACKUPS: ${LOG_MAX_BACKUPS:-5}
+      LOG_MAX_AGE_DAYS: ${LOG_MAX_AGE_DAYS:-30}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
     ports:
-      - "8080:8080"
+      - "${HOST_PORT:-8080}:${PORT:-8080}"
     volumes:
       - ./logs:/app/logs
     depends_on:
       mysql:
         condition: service_healthy
       redis:
-        condition: service_healthy
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:$$PORT/readyz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
   mysql:
-    image: mysql:8.4
+    image: mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: forum
-      MYSQL_USER: forum
-      MYSQL_PASSWORD: forum
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-forum}
+      MYSQL_USER: ${MYSQL_USER:-forum}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-forum}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
       interval: 5s
       timeout: 3s
       retries: 20
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: ["sh", "-c", "if [ -n \"$$REDIS_PASSWORD\" ]; then exec redis-server --requirepass \"$$REDIS_PASSWORD\"; else exec redis-server; fi"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then redis-cli -a \"$$REDIS_PASSWORD\" ping; else redis-cli ping; fi"]
       interval: 5s
       timeout: 3s
       retries: 10
